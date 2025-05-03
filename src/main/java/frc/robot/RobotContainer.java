@@ -37,6 +37,7 @@ import frc.lib.RollerIO.RollerIOReplay;
 import frc.lib.RollerIO.RollerIOSim;
 import frc.lib.dashboard.LoggedDigitalInput;
 import frc.robot.commands.DriveCommands;
+import frc.robot.commands.PathFindToGUIPoint;
 import frc.robot.controls.CoralMode;
 import frc.robot.controls.MatchXboxControls;
 import frc.robot.sensors.Vision;
@@ -422,8 +423,9 @@ public class RobotContainer {
       return 1.0;
     };
 
-    drive.setDefaultCommand(DriveCommands.joystickDrive(drive, controls::getDriveForward, controls::getDriveLeft,
-        controls::getDriveRotation, speedMultiplier));
+    // drive.setDefaultCommand(DriveCommands.joystickDrive(drive, controls::getDriveForward, controls::getDriveLeft,
+   //      controls::getDriveRotation, speedMultiplier));
+    drive.setDefaultCommand(new PathFindToGUIPoint(drive));
     // elevator.setDefaultCommand(new InstantCommand(() -> {
     // if (elevator.getCurrentGoal() != Elevator.Goal.STOW &&
     // elevator.getCurrentGoal() != Elevator.Goal.CLIMB_BOTTOM) {
