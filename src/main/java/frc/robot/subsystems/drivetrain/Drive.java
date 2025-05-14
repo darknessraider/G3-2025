@@ -52,6 +52,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import frc.lib.SendablePose2d;
 import frc.robot.utils.Constants;
 import frc.robot.utils.Constants.Mode;
 import frc.robot.utils.LocalADStarAK;
@@ -112,6 +113,8 @@ public class Drive extends SubsystemBase {
   private SwerveDrivePoseEstimator poseEstimator = new SwerveDrivePoseEstimator(kinematics, rawGyroRotation,
       lastModulePositions, new Pose2d());
 
+  private final SendablePose2d currentPoseSendable;
+
   /**
    * Constructor for Drive subsystem
    *
@@ -132,6 +135,7 @@ public class Drive extends SubsystemBase {
 
     // Usage reporting for swerve template
     HAL.report(tResourceType.kResourceType_RobotDrive, tInstances.kRobotDriveSwerve_AdvantageKit);
+    currentPoseSendable = new SendablePose2d("DrivingGUI", "current_pose");
 
     // Start odometry thread
     PhoenixOdometryThread.getInstance().start();
@@ -171,6 +175,8 @@ public class Drive extends SubsystemBase {
 
   @Override
   public void periodic() {
+    currentPoseSendable.setPose(getPose());
+
     double timestamp = Timer.getFPGATimestamp();
 
     if (Constants.currentMode == Mode.SIM) {
