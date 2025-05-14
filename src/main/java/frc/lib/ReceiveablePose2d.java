@@ -59,6 +59,9 @@ public class ReceiveablePose2d {
   }
 
   public boolean rotationChangedOnly() {
+    boolean a_value = thetaEntry.getDouble(0) != previousThetaEntry
+        && (yEntry.getDouble(0) == previousYEntry || thetaEntry.getDouble(0) == previousThetaEntry);
+    System.out.println(a_value);
     return thetaEntry.getDouble(0) != previousThetaEntry
         && (yEntry.getDouble(0) == previousYEntry || thetaEntry.getDouble(0) == previousThetaEntry);
 
