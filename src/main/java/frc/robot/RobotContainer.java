@@ -17,8 +17,10 @@ import static frc.robot.sensors.VisionConstants.kPoleTagRobotToCamera;
 
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.path.PathConstraints;
 import com.revrobotics.spark.config.SparkBaseConfig.IdleMode;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -30,6 +32,8 @@ import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.lib.AllianceFlipUtil;
+import frc.lib.DriveToPoint;
+import frc.lib.ReceiveablePose2d;
 import frc.lib.RollerIO.RollerIO;
 import frc.lib.RollerIO.RollerIOKraken;
 import frc.lib.RollerIO.RollerIONeo;
@@ -37,7 +41,6 @@ import frc.lib.RollerIO.RollerIOReplay;
 import frc.lib.RollerIO.RollerIOSim;
 import frc.lib.dashboard.LoggedDigitalInput;
 import frc.robot.commands.DriveCommands;
-import frc.robot.commands.PathFindToGUIPoint;
 import frc.robot.controls.CoralMode;
 import frc.robot.controls.MatchXboxControls;
 import frc.robot.sensors.Vision;
@@ -85,318 +88,335 @@ import org.littletonrobotics.junction.Logger;
 
 public class RobotContainer {
 
-  private final MatchXboxControls controls;
+    private final MatchXboxControls controls;
 
-  private Superstructure superstructure;
+    private Superstructure superstructure;
 
-  SendableChooser<Command> m_autoChooser;
+    SendableChooser<Command> m_autoChooser;
 
-  @Getter
-  private final CoralIntake coralIntake;
-  @Getter
-  private final CoralOuttakePivot coralOuttakePivot;
-  @Getter
-  private final CoralOuttakeRoller coralOuttakeRoller;
-  @Getter
-  private final Elevator elevator;
-  @Getter
-  private final Drive drive;
-  @Getter
-  private final Vision aprilTagVision;
-  @Getter
-  private final LED led;
+    @Getter
+    private final CoralIntake coralIntake;
+    @Getter
+    private final CoralOuttakePivot coralOuttakePivot;
+    @Getter
+    private final CoralOuttakeRoller coralOuttakeRoller;
+    @Getter
+    private final Elevator elevator;
+    @Getter
+    private final Drive drive;
+    @Getter
+    private final Vision aprilTagVision;
+    @Getter
+    private final LED led;
 
-  // @Getter private final CoralCamera coralCamera;
+    // @Getter private final CoralCamera coralCamera;
 
-  @Getter
-  private CANBusStatusSignalRegistration elevatorCANBusHandler = new CANBusStatusSignalRegistration("Elevator");
-  @Getter
-  private CANBusStatusSignalRegistration driveCANBusHandler = new CANBusStatusSignalRegistration("Drivetrain");
-  @Getter
-  private CANBusStatusSignalRegistration rioCANBusHandler = new CANBusStatusSignalRegistration("rio");
+    @Getter
+    private CANBusStatusSignalRegistration elevatorCANBusHandler = new CANBusStatusSignalRegistration("Elevator");
+    @Getter
+    private CANBusStatusSignalRegistration driveCANBusHandler = new CANBusStatusSignalRegistration("Drivetrain");
+    @Getter
+    private CANBusStatusSignalRegistration rioCANBusHandler = new CANBusStatusSignalRegistration("rio");
 
-  private Trigger coralIntakeAtStowGoal;
-  private Trigger elevatorAtStowGoal;
+    private Trigger coralIntakeAtStowGoal;
+    private Trigger elevatorAtStowGoal;
 
-  private Command auto = null;
+    private Command auto = null;
 
-  @AutoLogOutput
-  public CoralMode coralMode = CoralMode.L4;
+    @AutoLogOutput
+    public CoralMode coralMode = CoralMode.L4;
 
-  private boolean isHandoffInterruptible = true;
-  private Trigger waitForHandoffTrigger = new Trigger(() -> isHandoffInterruptible);
+    private boolean isHandoffInterruptible = true;
+    private Trigger waitForHandoffTrigger = new Trigger(() -> isHandoffInterruptible);
 
-  /** RobotContainer initialization */
-  public RobotContainer() {
-    // SignalLogger.start();
+    private final ReceiveablePose2d guiTargetPose;
+    private final Trigger guiTargetChange;
 
-    // Elevator
-    WinchIO winchIO;
-    LoggedDigitalInput elevatorZeroSensor = new LoggedDigitalInput(Ports.Elevator.zeroSensor);
 
-    // Coral Intake
-    RollerIO beltIO;
-    PivotIO pivotIO;
-    RollerIO coralIntakeRollerIO;
-    LoggedDigitalInput centerSensor = new LoggedDigitalInput(Ports.CoralIntake.centerSensor);
-    LoggedDigitalInput handoffSensor = new LoggedDigitalInput(Ports.CoralIntake.handoffSensor);
-    LoggedDigitalInput intakeUpperZeroSensor = new LoggedDigitalInput(Ports.CoralIntake.upperZeroSensor);
-    LoggedDigitalInput intakeLowerZeroSensor = new LoggedDigitalInput(Ports.CoralIntake.lowerZeroSensor);
-
-    // Coral Outtake
-    RollerIO rollerIO;
-    OuttakePivotIO outtakePivotIO;
-
-    // Drive
-    GyroIO gyroIO;
-    ModuleIO flModuleIO;
-    ModuleIO frModuleIO;
-    ModuleIO blModuleIO;
-    ModuleIO brModuleIO;
-
-    VisionIO[] aprilTagVisionIOs;
-
-    led = new LED();
-    led.setDefaultCommand(led.applyDefaultPatternCommand());
-
-    switch (Constants.MODE) {
-      case REPLAY:
-        // Elevator
-        winchIO = new WinchIOReplay();
-
-        // Coral Intake
-        beltIO = new RollerIOReplay();
-        pivotIO = new PivotIOReplay();
-        coralIntakeRollerIO = new RollerIOReplay();
-
-        // Coral Outtake
-        rollerIO = new RollerIOReplay();
-        outtakePivotIO = new OuttakePivotIOReplay();
-
-        // Drive
-        gyroIO = new GyroIOPigeon2(driveCANBusHandler);
-        flModuleIO = new ModuleIOTalonFX(TunerConstants.FrontLeft, driveCANBusHandler);
-        frModuleIO = new ModuleIOTalonFX(TunerConstants.FrontRight, driveCANBusHandler);
-        blModuleIO = new ModuleIOTalonFX(TunerConstants.BackLeft, driveCANBusHandler);
-        brModuleIO = new ModuleIOTalonFX(TunerConstants.BackRight, driveCANBusHandler);
-
-        drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
-
-        aprilTagVision = new Vision(drive::addVisionMeasurement, new VisionIO[0]);
-        break;
-      case SIM:
+    /** RobotContainer initialization */
+    public RobotContainer() {
+        // SignalLogger.start();
 
         // Elevator
-        winchIO = new WinchIOSim();
+        WinchIO winchIO;
+        LoggedDigitalInput elevatorZeroSensor = new LoggedDigitalInput(Ports.Elevator.zeroSensor);
 
         // Coral Intake
-        beltIO = new RollerIOSim();
-        pivotIO = new PivotIOSim();
-        coralIntakeRollerIO = new RollerIOSim();
+        RollerIO beltIO;
+        PivotIO pivotIO;
+        RollerIO coralIntakeRollerIO;
+        LoggedDigitalInput centerSensor = new LoggedDigitalInput(Ports.CoralIntake.centerSensor);
+        LoggedDigitalInput handoffSensor = new LoggedDigitalInput(Ports.CoralIntake.handoffSensor);
+        LoggedDigitalInput intakeUpperZeroSensor = new LoggedDigitalInput(Ports.CoralIntake.upperZeroSensor);
+        LoggedDigitalInput intakeLowerZeroSensor = new LoggedDigitalInput(Ports.CoralIntake.lowerZeroSensor);
+
+        guiTargetPose = new ReceiveablePose2d("DrivingGUI", "TargetPose");
+        guiTargetChange = new Trigger(guiTargetPose::isChanged);
 
         // Coral Outtake
-        rollerIO = new RollerIOSim();
-        outtakePivotIO = new OuttakePivotIOSim();
+        RollerIO rollerIO;
+        OuttakePivotIO outtakePivotIO;
 
         // Drive
-        gyroIO = new GyroIOPigeon2(driveCANBusHandler);
-        flModuleIO = new ModuleIOSim(TunerConstants.FrontLeft);
-        frModuleIO = new ModuleIOSim(TunerConstants.FrontRight);
-        blModuleIO = new ModuleIOSim(TunerConstants.BackLeft);
-        brModuleIO = new ModuleIOSim(TunerConstants.BackRight);
+        GyroIO gyroIO;
+        ModuleIO flModuleIO;
+        ModuleIO frModuleIO;
+        ModuleIO blModuleIO;
+        ModuleIO brModuleIO;
 
-        drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
+        VisionIO[] aprilTagVisionIOs;
 
-        // Vision
-        aprilTagVisionIOs = new VisionIO[] {
-            new VisionIOSim("limelight", VisionConstants.kModuleTagRobotToCamera, drive::getPose)
-        };
+        led = new LED();
+        led.setDefaultCommand(led.applyDefaultPatternCommand());
 
-        aprilTagVision = new Vision(drive::addVisionMeasurement, aprilTagVisionIOs);
-        break;
-      default:
-        // Elevator
-        // winchIO = new WinchIOSim();
-        winchIO = new WinchIOKraken(Ports.Elevator.LeftWinchMotor,
-            Ports.Elevator.RightWinchMotor,
-            Ports.Elevator.WinchEncoder,
-            driveCANBusHandler);
+        switch (Constants.MODE) {
+            case REPLAY:
+                // Elevator
+                winchIO = new WinchIOReplay();
 
-        // Coral Intake
-        beltIO = new RollerIOKraken(Ports.CoralIntake.belt, rioCANBusHandler, true);
-        // beltIO = new RollerIOSim();
-        pivotIO = new PivotIONeo(Ports.CoralIntake.pivotMotor, Ports.CoralIntake.pivotEncoder);
-        // pivotIO = new PivotIOSim();
-        coralIntakeRollerIO = new RollerIONeo(Ports.CoralIntake.coralIntakeRoller, IdleMode.kBrake);
-        // coralIntakeRollerIO = new RollerIOSim();
+                // Coral Intake
+                beltIO = new RollerIOReplay();
+                pivotIO = new PivotIOReplay();
+                coralIntakeRollerIO = new RollerIOReplay();
 
-        // Coral Outtake
-        rollerIO = new RollerIOKraken(Ports.CoralOuttake.roller, elevatorCANBusHandler, true);
-        outtakePivotIO = new OuttakePivotIOKraken(Ports.CoralOuttake.pivotMotor, Ports.CoralOuttake.pivotEncoder,
-            elevatorCANBusHandler);
+                // Coral Outtake
+                rollerIO = new RollerIOReplay();
+                outtakePivotIO = new OuttakePivotIOReplay();
 
-        // Drive
-        gyroIO = new GyroIOPigeon2(driveCANBusHandler);
-        flModuleIO = new ModuleIOTalonFX(TunerConstants.FrontLeft, driveCANBusHandler);
-        frModuleIO = new ModuleIOTalonFX(TunerConstants.FrontRight, driveCANBusHandler);
-        blModuleIO = new ModuleIOTalonFX(TunerConstants.BackLeft, driveCANBusHandler);
-        brModuleIO = new ModuleIOTalonFX(TunerConstants.BackRight, driveCANBusHandler);
+                // Drive
+                gyroIO = new GyroIOPigeon2(driveCANBusHandler);
+                flModuleIO = new ModuleIOTalonFX(TunerConstants.FrontLeft, driveCANBusHandler);
+                frModuleIO = new ModuleIOTalonFX(TunerConstants.FrontRight, driveCANBusHandler);
+                blModuleIO = new ModuleIOTalonFX(TunerConstants.BackLeft, driveCANBusHandler);
+                brModuleIO = new ModuleIOTalonFX(TunerConstants.BackRight, driveCANBusHandler);
 
-        drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
+                drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
 
-        aprilTagVisionIOs = new VisionIO[] {
-            // new VisionIOPhotonVision("limelight",
-            // VisionConstants.kModuleTagRobotToCamera),
-            new VisionIOLimelight(kPoleTagCameraName, drive::getRotation, kPoleTagRobotToCamera),
-            new VisionIOLimelight(kModuleTagCameraName, drive::getRotation, kModuleTagRobotToCamera),
-            new VisionIOLimelight(kElevatorTagCameraName, drive::getRotation, kElevatorTagRobotToCamera)
-        };
+                aprilTagVision = new Vision(drive::addVisionMeasurement, new VisionIO[0]);
+                break;
+            case SIM:
 
-        aprilTagVision = new Vision(drive::addVisionMeasurement, aprilTagVisionIOs);
-        break;
+                // Elevator
+                winchIO = new WinchIOSim();
+
+                // Coral Intake
+                beltIO = new RollerIOSim();
+                pivotIO = new PivotIOSim();
+                coralIntakeRollerIO = new RollerIOSim();
+
+                // Coral Outtake
+                rollerIO = new RollerIOSim();
+                outtakePivotIO = new OuttakePivotIOSim();
+
+                // Drive
+                gyroIO = new GyroIOPigeon2(driveCANBusHandler);
+                flModuleIO = new ModuleIOSim(TunerConstants.FrontLeft);
+                frModuleIO = new ModuleIOSim(TunerConstants.FrontRight);
+                blModuleIO = new ModuleIOSim(TunerConstants.BackLeft);
+                brModuleIO = new ModuleIOSim(TunerConstants.BackRight);
+
+                drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
+
+                // Vision
+                aprilTagVisionIOs = new VisionIO[] {
+                        new VisionIOSim("limelight", VisionConstants.kModuleTagRobotToCamera, drive::getPose)
+                };
+
+                aprilTagVision = new Vision(drive::addVisionMeasurement, aprilTagVisionIOs);
+                break;
+            default:
+                // Elevator
+                // winchIO = new WinchIOSim();
+                winchIO = new WinchIOKraken(Ports.Elevator.LeftWinchMotor,
+                        Ports.Elevator.RightWinchMotor,
+                        Ports.Elevator.WinchEncoder,
+                        driveCANBusHandler);
+
+                // Coral Intake
+                beltIO = new RollerIOKraken(Ports.CoralIntake.belt, rioCANBusHandler, true);
+                // beltIO = new RollerIOSim();
+                pivotIO = new PivotIONeo(Ports.CoralIntake.pivotMotor, Ports.CoralIntake.pivotEncoder);
+                // pivotIO = new PivotIOSim();
+                coralIntakeRollerIO = new RollerIONeo(Ports.CoralIntake.coralIntakeRoller, IdleMode.kBrake);
+                // coralIntakeRollerIO = new RollerIOSim();
+
+                // Coral Outtake
+                rollerIO = new RollerIOKraken(Ports.CoralOuttake.roller, elevatorCANBusHandler, true);
+                outtakePivotIO = new OuttakePivotIOKraken(Ports.CoralOuttake.pivotMotor,
+                        Ports.CoralOuttake.pivotEncoder,
+                        elevatorCANBusHandler);
+
+                // Drive
+                gyroIO = new GyroIOPigeon2(driveCANBusHandler);
+                flModuleIO = new ModuleIOTalonFX(TunerConstants.FrontLeft, driveCANBusHandler);
+                frModuleIO = new ModuleIOTalonFX(TunerConstants.FrontRight, driveCANBusHandler);
+                blModuleIO = new ModuleIOTalonFX(TunerConstants.BackLeft, driveCANBusHandler);
+                brModuleIO = new ModuleIOTalonFX(TunerConstants.BackRight, driveCANBusHandler);
+
+                drive = new Drive(gyroIO, flModuleIO, frModuleIO, blModuleIO, brModuleIO);
+
+                aprilTagVisionIOs = new VisionIO[] {
+                        // new VisionIOPhotonVision("limelight",
+                        // VisionConstants.kModuleTagRobotToCamera),
+                        new VisionIOLimelight(kPoleTagCameraName, drive::getRotation, kPoleTagRobotToCamera),
+                        new VisionIOLimelight(kModuleTagCameraName, drive::getRotation, kModuleTagRobotToCamera),
+                        new VisionIOLimelight(kElevatorTagCameraName, drive::getRotation, kElevatorTagRobotToCamera)
+                };
+
+                aprilTagVision = new Vision(drive::addVisionMeasurement, aprilTagVisionIOs);
+                break;
+        }
+
+        LockIO lockIO = new LockIORevServo(Ports.Elevator.LockServo);
+        elevator = new Elevator(winchIO, lockIO, elevatorZeroSensor);
+        coralIntake = new CoralIntake(beltIO, pivotIO, coralIntakeRollerIO, centerSensor, handoffSensor,
+                intakeUpperZeroSensor, intakeLowerZeroSensor);
+        coralOuttakePivot = new CoralOuttakePivot(outtakePivotIO);
+        coralOuttakeRoller = new CoralOuttakeRoller(rollerIO);
+
+        superstructure = new Superstructure(coralIntake, elevator, coralOuttakePivot);
+
+        new RobotViz(drive::getPose, coralIntake::getPosition, elevator::getPosition);
+
+        controls = new MatchXboxControls(0, 1);
+        configureBindings();
+
+        coralIntakeAtStowGoal = coralIntake.atGoalTrigger(CoralIntake.Goal.STOW, Degrees.of(1.5));
+        elevatorAtStowGoal = new Trigger(elevator.atGoalTrigger(Elevator.Goal.STOW));
+
+        RobotModeTriggers.teleop()
+                .and(() -> coralIntake.getCurrentGoal() == CoralIntake.Goal.STOW)
+                .and(() -> elevator.getCurrentGoal() == Elevator.Goal.STOW)
+                .and(coralIntake.centerSensorTrigger)
+                .and(() -> coralMode != CoralMode.L1)
+                .debounce(0.25)
+                .onTrue(handoffCommand());
+
+        NamedCommands.registerCommand("ScoreCoralLevel4", Commands.sequence(
+                prepareScoreCoral(CoralMode.L4),
+                coralOuttakeRoller
+                        .setGoalEndCommand(CoralOuttakeRoller.Goal.SHOOT_L4, CoralOuttakeRoller.Goal.STOW)
+                        .withTimeout(0.5),
+                Commands.parallel(
+                        coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.STOW),
+                        elevator.setGoalCommand(Elevator.Goal.STOW))));
+
+        NamedCommands.registerCommand("PrepareLevel1", coralIntake.setGoalCommand(CoralIntake.Goal.L1_PREPARE));
+        NamedCommands.registerCommand("ScoreCoralLevel1", coralIntake.setGoalCommand(CoralIntake.Goal.L1));
+
+        NamedCommands.registerCommand("DisableCameras", aprilTagVision.enableDisableCamera(false, 0));
+
+        NamedCommands.registerCommand("Handoff", handoffCommand());
+        NamedCommands.registerCommand("WaitForHandoff", Commands.waitUntil(waitForHandoffTrigger));
+        // NamedCommands.registerCommand("PrepareLevel4",
+        // prepareScoreCoral(CoralMode.L4));
+        NamedCommands.registerCommand("PrepareLevel4", Commands.sequence(
+                Commands.waitUntil(waitForHandoffTrigger),
+                Commands.defer(() -> prepareScoreCoral(CoralMode.L4), Set.of())));
+        NamedCommands.registerCommand("PrepareLoadingStationIntake",
+                coralIntake.setGoalCommand(CoralIntake.Goal.STATION_INTAKE)
+                        .alongWith(coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.L2)));
+
+        NamedCommands.registerCommand("IntakeFromGround", coralIntake.setGoalCommand(CoralIntake.Goal.GROUND_INTAKE));
+
+        NamedCommands.registerCommand("IntakeFromLoadingStation",
+                coralIntake.setGoalEndCommand(CoralIntake.Goal.STATION_INTAKE, CoralIntake.Goal.STOW)
+                        .until(coralIntake.pieceDetectedTrigger.debounce(0.15))
+                        .withTimeout(7));
+
+        NamedCommands.registerCommand("PrepareIntakeAlgaeLow", Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_LOW, Inches.of(2.5)),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY, Degrees.of(4)),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY)));
+
+        NamedCommands.registerCommand("PrepareIntakeAlgaeHigh", Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_HIGH, Inches.of(2.5)),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY, Degrees.of(4)),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY)));
+
+        NamedCommands.registerCommand("IntakeAlgaeLow", Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_LOW),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY),
+                Commands.waitSeconds(0.3),
+                Commands.waitUntil(coralOuttakeRoller.currentSpikeTrigger).withTimeout(2.5),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_HOLD)));
+
+        NamedCommands.registerCommand("AlgaeStow", Commands.parallel(
+                coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.DEALGIFY_STOW),
+                elevator.setGoalCommand(Elevator.Goal.STOW),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_HOLD)));
+
+        NamedCommands.registerCommand("PrepareBargeShoot", Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.BARGE, Inches.of(4)),
+                coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.BARGE)));
+
+        NamedCommands.registerCommand("BargeShoot", Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.BARGE),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.BARGE),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_SHOOT),
+                Commands.waitSeconds(.25)));
+
+        NamedCommands.registerCommand("Stow", Commands.runOnce(() -> {
+            teleopInit();
+        }).withTimeout(1));
+
+        // barge
+        // controls.algae().and(() -> (coralMode == CoralMode.L4))
+        // .whileTrue(Commands.sequence(
+        // elevator.setGoalAndWait(Elevator.Goal.BARGE),
+        // coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.BARGE)))
+        // .onFalse(Commands.parallel(
+        // elevator.setGoalCommand(Elevator.Goal.STOW),
+        // coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.STOW)));
+
+        // controls.algae().and(controls.scoreGamePiece()).whileTrue(
+        NamedCommands.registerCommand("AlignToBranchA",
+                DriveCommands.alignToBranchReef(drive, led, 0).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchB",
+                DriveCommands.alignToBranchReef(drive, led, 1).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchC",
+                DriveCommands.alignToBranchReef(drive, led, 2).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchD",
+                DriveCommands.alignToBranchReef(drive, led, 3).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchE",
+                DriveCommands.alignToBranchReef(drive, led, 4).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchF",
+                DriveCommands.alignToBranchReef(drive, led, 5).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchH",
+                DriveCommands.alignToBranchReef(drive, led, 7).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchI",
+                DriveCommands.alignToBranchReef(drive, led, 8).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToBranchK",
+                DriveCommands.alignToBranchReef(drive, led, 10).withTimeout(1.6));
+
+        NamedCommands.registerCommand("AlignToAlgae4",
+                DriveCommands.alignToAlgaeReef(drive, led, () -> ReefFace.GH).withTimeout(1.6));
+        NamedCommands.registerCommand("AlignToAlgae5",
+                DriveCommands.alignToAlgaeReef(drive, led, () -> ReefFace.IJ).withTimeout(1.6));
+
+        NamedCommands.registerCommand("PrepareLevel1", Commands.runOnce(() -> coralMode = CoralMode.L1));
+
+        m_autoChooser = AutoBuilder.buildAutoChooser();
+        SmartDashboard.putData("Auto Chooser", m_autoChooser);
+
+        auto = AutoBuilder.buildAuto("Bottom AA 3 Piece v2");
+
+        // coralCamera = new CoralCamera(new VisionIOLimelight("limelight",
+        // drive::getPose));
     }
 
-    LockIO lockIO = new LockIORevServo(Ports.Elevator.LockServo);
-    elevator = new Elevator(winchIO, lockIO, elevatorZeroSensor);
-    coralIntake = new CoralIntake(beltIO, pivotIO, coralIntakeRollerIO, centerSensor, handoffSensor,
-        intakeUpperZeroSensor, intakeLowerZeroSensor);
-    coralOuttakePivot = new CoralOuttakePivot(outtakePivotIO);
-    coralOuttakeRoller = new CoralOuttakeRoller(rollerIO);
+    private Command prepareScoreCoral(CoralMode mode) {
+        return Commands.sequence(
+                elevator.setGoalAndWait(Elevator.Goal.fromCoralMode(mode), Inches.of(4)),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.fromCoralMode(mode), Degrees.of(4)),
+                elevator.setGoalAndWait(Elevator.Goal.fromCoralMode(mode)).withTimeout(0.4),
+                coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.fromCoralMode(mode)).withTimeout(0.4));
+    }
 
-    superstructure = new Superstructure(coralIntake, elevator, coralOuttakePivot);
-
-    new RobotViz(drive::getPose, coralIntake::getPosition, elevator::getPosition);
-
-    controls = new MatchXboxControls(0, 1);
-    configureBindings();
-
-    coralIntakeAtStowGoal = coralIntake.atGoalTrigger(CoralIntake.Goal.STOW, Degrees.of(1.5));
-    elevatorAtStowGoal = new Trigger(elevator.atGoalTrigger(Elevator.Goal.STOW));
-
-    RobotModeTriggers.teleop()
-        .and(() -> coralIntake.getCurrentGoal() == CoralIntake.Goal.STOW)
-        .and(() -> elevator.getCurrentGoal() == Elevator.Goal.STOW)
-        .and(coralIntake.centerSensorTrigger)
-        .and(() -> coralMode != CoralMode.L1)
-        .debounce(0.25)
-        .onTrue(handoffCommand());
-
-    NamedCommands.registerCommand("ScoreCoralLevel4", Commands.sequence(
-        prepareScoreCoral(CoralMode.L4),
-        coralOuttakeRoller
-            .setGoalEndCommand(CoralOuttakeRoller.Goal.SHOOT_L4, CoralOuttakeRoller.Goal.STOW)
-            .withTimeout(0.5),
-        Commands.parallel(
-            coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.STOW),
-            elevator.setGoalCommand(Elevator.Goal.STOW))));
-
-    NamedCommands.registerCommand("PrepareLevel1", coralIntake.setGoalCommand(CoralIntake.Goal.L1_PREPARE));
-    NamedCommands.registerCommand("ScoreCoralLevel1", coralIntake.setGoalCommand(CoralIntake.Goal.L1));
-
-    NamedCommands.registerCommand("DisableCameras", aprilTagVision.enableDisableCamera(false, 0));
-
-    NamedCommands.registerCommand("Handoff", handoffCommand());
-    NamedCommands.registerCommand("WaitForHandoff", Commands.waitUntil(waitForHandoffTrigger));
-    // NamedCommands.registerCommand("PrepareLevel4",
-    // prepareScoreCoral(CoralMode.L4));
-    NamedCommands.registerCommand("PrepareLevel4", Commands.sequence(
-        Commands.waitUntil(waitForHandoffTrigger),
-        Commands.defer(() -> prepareScoreCoral(CoralMode.L4), Set.of())));
-    NamedCommands.registerCommand("PrepareLoadingStationIntake",
-        coralIntake.setGoalCommand(CoralIntake.Goal.STATION_INTAKE)
-            .alongWith(coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.L2)));
-
-    NamedCommands.registerCommand("IntakeFromGround", coralIntake.setGoalCommand(CoralIntake.Goal.GROUND_INTAKE));
-
-    NamedCommands.registerCommand("IntakeFromLoadingStation",
-        coralIntake.setGoalEndCommand(CoralIntake.Goal.STATION_INTAKE, CoralIntake.Goal.STOW)
-            .until(coralIntake.pieceDetectedTrigger.debounce(0.15))
-            .withTimeout(7));
-
-    NamedCommands.registerCommand("PrepareIntakeAlgaeLow", Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_LOW, Inches.of(2.5)),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY, Degrees.of(4)),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY)));
-
-    NamedCommands.registerCommand("PrepareIntakeAlgaeHigh", Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_HIGH, Inches.of(2.5)),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY, Degrees.of(4)),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY)));
-
-    NamedCommands.registerCommand("IntakeAlgaeLow", Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.DEALGIFY_LOW),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.DEALGIFY),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.DEALGIFY),
-        Commands.waitSeconds(0.3),
-        Commands.waitUntil(coralOuttakeRoller.currentSpikeTrigger).withTimeout(2.5),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_HOLD)));
-
-    NamedCommands.registerCommand("AlgaeStow", Commands.parallel(
-        coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.DEALGIFY_STOW),
-        elevator.setGoalCommand(Elevator.Goal.STOW),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_HOLD)));
-
-    NamedCommands.registerCommand("PrepareBargeShoot", Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.BARGE, Inches.of(4)),
-        coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.BARGE)));
-
-    NamedCommands.registerCommand("BargeShoot", Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.BARGE),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.BARGE),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.ALGAE_SHOOT),
-        Commands.waitSeconds(.25)));
-
-    NamedCommands.registerCommand("Stow", Commands.runOnce(() -> {
-      teleopInit();
-    }).withTimeout(1));
-
-    // barge
-    // controls.algae().and(() -> (coralMode == CoralMode.L4))
-    // .whileTrue(Commands.sequence(
-    // elevator.setGoalAndWait(Elevator.Goal.BARGE),
-    // coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.BARGE)))
-    // .onFalse(Commands.parallel(
-    // elevator.setGoalCommand(Elevator.Goal.STOW),
-    // coralOuttakePivot.setGoalCommand(CoralOuttakePivot.Goal.STOW)));
-
-    // controls.algae().and(controls.scoreGamePiece()).whileTrue(
-    NamedCommands.registerCommand("AlignToBranchA", DriveCommands.alignToBranchReef(drive, led, 0).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchB", DriveCommands.alignToBranchReef(drive, led, 1).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchC", DriveCommands.alignToBranchReef(drive, led, 2).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchD", DriveCommands.alignToBranchReef(drive, led, 3).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchE", DriveCommands.alignToBranchReef(drive, led, 4).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchF", DriveCommands.alignToBranchReef(drive, led, 5).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchH", DriveCommands.alignToBranchReef(drive, led, 7).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchI", DriveCommands.alignToBranchReef(drive, led, 8).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToBranchK", DriveCommands.alignToBranchReef(drive, led, 10).withTimeout(1.6));
-
-    NamedCommands.registerCommand("AlignToAlgae4",
-        DriveCommands.alignToAlgaeReef(drive, led, () -> ReefFace.GH).withTimeout(1.6));
-    NamedCommands.registerCommand("AlignToAlgae5",
-        DriveCommands.alignToAlgaeReef(drive, led, () -> ReefFace.IJ).withTimeout(1.6));
-
-    NamedCommands.registerCommand("PrepareLevel1", Commands.runOnce(() -> coralMode = CoralMode.L1));
-
-    m_autoChooser = AutoBuilder.buildAutoChooser();
-    SmartDashboard.putData("Auto Chooser", m_autoChooser);
-
-    auto = AutoBuilder.buildAuto("Bottom AA 3 Piece v2");
-
-    // coralCamera = new CoralCamera(new VisionIOLimelight("limelight",
-    // drive::getPose));
-  }
-
-  private Command prepareScoreCoral(CoralMode mode) {
-    return Commands.sequence(
-        elevator.setGoalAndWait(Elevator.Goal.fromCoralMode(mode), Inches.of(4)),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.fromCoralMode(mode), Degrees.of(4)),
-        elevator.setGoalAndWait(Elevator.Goal.fromCoralMode(mode)).withTimeout(0.4),
-        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.fromCoralMode(mode)).withTimeout(0.4));
-  }
-
-  private double mapInput(double input, double inputMin, double inputMax, double outputMin, double outputMax) {
-    return (input - inputMin) * (outputMax - outputMin) / (inputMax - inputMin) + outputMin;
-  }
+    private double mapInput(double input, double inputMin, double inputMax, double outputMin, double outputMax) {
+        return (input - inputMin) * (outputMax - outputMin) / (inputMax - inputMin) + outputMin;
+    }
 
   /** Configures bindings to oi */
   private void configureBindings() {
@@ -423,9 +443,17 @@ public class RobotContainer {
       return 1.0;
     };
 
-    // drive.setDefaultCommand(DriveCommands.joystickDrive(drive, controls::getDriveForward, controls::getDriveLeft,
-   //      controls::getDriveRotation, speedMultiplier));
-    drive.setDefaultCommand(new PathFindToGUIPoint(drive));
+    drive.setDefaultCommand(DriveCommands.joystickDrive(drive, controls::getDriveForward, controls::getDriveLeft,
+        controls::getDriveRotation, speedMultiplier));
+
+    PathConstraints constraints = new PathConstraints(
+        3.0, 4.0,
+        Units.degreesToRadians(540), Units.degreesToRadians(720));
+
+    guiTargetChange.onTrue(Commands.either(new DriveToPoint(drive, guiTargetPose::getPose),
+                           AutoBuilder.pathfindToPose(guiTargetPose.getPose(), constraints),
+                           guiTargetPose::rotationChangedOnly));
+
     // elevator.setDefaultCommand(new InstantCommand(() -> {
     // if (elevator.getCurrentGoal() != Elevator.Goal.STOW &&
     // elevator.getCurrentGoal() != Elevator.Goal.CLIMB_BOTTOM) {
@@ -709,97 +737,100 @@ public class RobotContainer {
     // testController.y().whileTrue(elevator.sysIdQuasistatic(Direction.kReverse));
   }
 
-  /** Called when the robot enters teleop */
-  public void teleopInit() {
-    elevator.setGoal(Elevator.Goal.STOW);
-    coralIntake.setGoal(CoralIntake.Goal.STOW);
-    coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW);
-    coralOuttakeRoller.setGoal(CoralOuttakeRoller.Goal.STOW);
-  }
-
-  /** Returns the autonomous command */
-  public Command getAutonomousCommand() {
-
-    /*
-     * if (auto == null) {
-     * return Commands.print("AHHHH");
-     * }
-     *
-     * return auto;
-     */
-    var selected = m_autoChooser.getSelected();
-
-    if (selected == null) {
-      return auto;
+    /** Called when the robot enters teleop */
+    public void teleopInit() {
+        elevator.setGoal(Elevator.Goal.STOW);
+        coralIntake.setGoal(CoralIntake.Goal.STOW);
+        coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW);
+        coralOuttakeRoller.setGoal(CoralOuttakeRoller.Goal.STOW);
     }
 
-    return selected;
-  }
+    /** Returns the autonomous command */
+    public Command getAutonomousCommand() {
 
-  private Command handoffCommand() {
-    return Commands.sequence(
-        Commands.parallel(
-            Commands.runOnce(() -> {
-              isHandoffInterruptible = false;
-            }),
-            elevator.setGoalAndWait(Elevator.Goal.STOW),
-            coralIntake.setGoalAndWait(CoralIntake.Goal.HANDOFF, Degrees.of(3.5)),
-            coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.HANDOFF, Degrees.of(20))).withTimeout(1.0),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.HANDOFF),
-        Commands.waitUntil(coralIntake.handoffSensorTrigger).withTimeout(2), // TODO change back to 2
-        Commands.waitUntil(coralIntake.handoffSensorTrigger.negate()).withTimeout(2),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.HANDOFF_REVERSE),
-        Commands.waitSeconds(0.1),
-        coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.STOW)).finallyDo(() -> {
-          elevator.setGoal(Elevator.Goal.STOW);
-          coralIntake.setGoal(CoralIntake.Goal.STOW);
-          coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW);
-          coralOuttakeRoller.setGoal(CoralOuttakeRoller.Goal.STOW);
-          isHandoffInterruptible = true;
-        });
-  }
+        /*
+         * if (auto == null) {
+         * return Commands.print("AHHHH");
+         * }
+         *
+         * return auto;
+         */
+        var selected = m_autoChooser.getSelected();
 
-  /** Returns a command that sets the elevator and coral outtake pivot goals */
-  public Command prepareScoreCoralCommand() {
-    return Commands.parallel(
-        elevator.setGoalEndCommand(() -> Elevator.Goal.fromCoralMode(coralMode), Elevator.Goal.STOW),
-        coralOuttakePivot.setGoalEndCommand(() -> CoralOuttakePivot.Goal.fromCoralMode(coralMode),
-            CoralOuttakePivot.Goal.STOW))
-        .finallyDo(() -> coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW));
-  }
+        if (selected == null) {
+            return auto;
+        }
 
-  /**  */
-  public Command indexCoralAndStowCommand() {
-    return Commands.either(
-        Commands.sequence(
-            coralIntake.setGoalCommand(CoralIntake.Goal.PRE_HANDOFF_ADJUST_CORAL),
-            Commands.waitUntil(coralIntake.atGoalTrigger.and(coralIntake.centerSensorTrigger)).withTimeout(3.0),
-            coralIntake.setGoalCommand(CoralIntake.Goal.STOW)),
-        coralIntake.setGoalCommand(coralMode == CoralMode.L1 ? CoralIntake.Goal.L1_PREPARE : CoralIntake.Goal.STOW),
-        coralIntake.handoffSensorTrigger);
-  }
-
-  private ReefFace getClosestReefFace() {
-    ReefFace closestFace = null;
-    Distance closestDistance = Meters.of(Double.MAX_VALUE);
-    Pose2d currentPose = drive.getPose();
-
-    for (ReefFace face : ReefFace.values()) {
-      Pose2d rawReefFacePose = FieldConstants.Reef.centerFaces[face.ordinal()];
-      Pose2d reefFacePose = AllianceFlipUtil.apply(rawReefFacePose);
-      Distance distance = Meters.of(reefFacePose.getTranslation().getDistance(currentPose.getTranslation()));
-      if (distance.lt(closestDistance)) {
-        closestFace = face;
-        closestDistance = distance;
-      }
+        return selected;
     }
 
-    return closestFace;
-  }
+    private Command handoffCommand() {
+        return Commands.sequence(
+                Commands.parallel(
+                        Commands.runOnce(() -> {
+                            isHandoffInterruptible = false;
+                        }),
+                        elevator.setGoalAndWait(Elevator.Goal.STOW),
+                        coralIntake.setGoalAndWait(CoralIntake.Goal.HANDOFF, Degrees.of(3.5)),
+                        coralOuttakePivot.setGoalAndWait(CoralOuttakePivot.Goal.HANDOFF, Degrees.of(20)))
+                        .withTimeout(1.0),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.HANDOFF),
+                Commands.waitUntil(coralIntake.handoffSensorTrigger).withTimeout(2), // TODO change back to 2
+                Commands.waitUntil(coralIntake.handoffSensorTrigger.negate()).withTimeout(2),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.HANDOFF_REVERSE),
+                Commands.waitSeconds(0.1),
+                coralOuttakeRoller.setGoalCommand(CoralOuttakeRoller.Goal.STOW)).finallyDo(() -> {
+                    elevator.setGoal(Elevator.Goal.STOW);
+                    coralIntake.setGoal(CoralIntake.Goal.STOW);
+                    coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW);
+                    coralOuttakeRoller.setGoal(CoralOuttakeRoller.Goal.STOW);
+                    isHandoffInterruptible = true;
+                });
+    }
 
-  /** used for logging */
-  public void periodic() {
-    Logger.recordOutput("FinishedZeroing",
-        coralIntake.getZeroSensorDebounced(true) && elevator.getZeroSensorDebounced());
-  }
+    /** Returns a command that sets the elevator and coral outtake pivot goals */
+    public Command prepareScoreCoralCommand() {
+        return Commands.parallel(
+                elevator.setGoalEndCommand(() -> Elevator.Goal.fromCoralMode(coralMode), Elevator.Goal.STOW),
+                coralOuttakePivot.setGoalEndCommand(() -> CoralOuttakePivot.Goal.fromCoralMode(coralMode),
+                        CoralOuttakePivot.Goal.STOW))
+                .finallyDo(() -> coralOuttakePivot.setGoal(CoralOuttakePivot.Goal.STOW));
+    }
+
+    /**  */
+    public Command indexCoralAndStowCommand() {
+        return Commands.either(
+                Commands.sequence(
+                        coralIntake.setGoalCommand(CoralIntake.Goal.PRE_HANDOFF_ADJUST_CORAL),
+                        Commands.waitUntil(coralIntake.atGoalTrigger.and(coralIntake.centerSensorTrigger))
+                                .withTimeout(3.0),
+                        coralIntake.setGoalCommand(CoralIntake.Goal.STOW)),
+                coralIntake.setGoalCommand(
+                        coralMode == CoralMode.L1 ? CoralIntake.Goal.L1_PREPARE : CoralIntake.Goal.STOW),
+                coralIntake.handoffSensorTrigger);
+    }
+
+    private ReefFace getClosestReefFace() {
+        ReefFace closestFace = null;
+        Distance closestDistance = Meters.of(Double.MAX_VALUE);
+        Pose2d currentPose = drive.getPose();
+
+        for (ReefFace face : ReefFace.values()) {
+            Pose2d rawReefFacePose = FieldConstants.Reef.centerFaces[face.ordinal()];
+            Pose2d reefFacePose = AllianceFlipUtil.apply(rawReefFacePose);
+            Distance distance = Meters.of(reefFacePose.getTranslation().getDistance(currentPose.getTranslation()));
+            if (distance.lt(closestDistance)) {
+                closestFace = face;
+                closestDistance = distance;
+            }
+        }
+
+        return closestFace;
+    }
+
+    /** used for logging */
+    public void periodic() {
+        Logger.recordOutput("FinishedZeroing",
+                coralIntake.getZeroSensorDebounced(true) && elevator.getZeroSensorDebounced());
+    }
 }

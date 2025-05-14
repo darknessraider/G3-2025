@@ -112,7 +112,6 @@ public class DriveCommands {
             DoubleSupplier speedMultiplier) {
         return Commands.run(
                 () -> {
-                    System.out.println("Test");
                     // Get linear velocity
                     Translation2d linearVelocity = getLinearVelocityFromJoysticks(xSupplier.getAsDouble(),
                             ySupplier.getAsDouble());

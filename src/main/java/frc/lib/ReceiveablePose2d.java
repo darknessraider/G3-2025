@@ -7,6 +7,7 @@ import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.units.Units;
+import java.util.ArrayList;
 
 public class ReceiveablePose2d {
   NetworkTableEntry xEntry;
@@ -16,12 +17,25 @@ public class ReceiveablePose2d {
   double previousYEntry;
   double previousThetaEntry;
 
+  private static ArrayList<ReceiveablePose2d> receiveablePoses = new ArrayList<ReceiveablePose2d>();
+
+  private static void registerPose(ReceiveablePose2d pose) {
+    receiveablePoses.add(pose);
+  }
+
+  public static void updateValues() {
+    for (int i = 0; i < receiveablePoses.size(); i++) {
+      receiveablePoses.get(i).update();
+    }
+  }
+
   public ReceiveablePose2d(String tableName, String entryName) {
     NetworkTableInstance inst = NetworkTableInstance.getDefault();
     NetworkTable table = inst.getTable(tableName);
     xEntry = table.getEntry(entryName + "_x");
     yEntry = table.getEntry(entryName + "_y");
     thetaEntry = table.getEntry(entryName + "_theta");
+    registerPose(this);
   }
 
   public Pose2d getPose() {
@@ -33,12 +47,20 @@ public class ReceiveablePose2d {
     return new Pose2d(transform, rotation);
   }
 
-  public boolean isChanged() {
-    boolean changed = xEntry.getDouble(0) != previousXEntry || yEntry.getDouble(0) != previousYEntry
-        || thetaEntry.getDouble(0) != previousThetaEntry;
+  private void update() {
     previousXEntry = xEntry.getDouble(0);
     previousYEntry = yEntry.getDouble(0);
     previousThetaEntry = thetaEntry.getDouble(0);
-    return changed;
+  }
+
+  public boolean isChanged() {
+    return xEntry.getDouble(0) != previousXEntry || yEntry.getDouble(0) != previousYEntry
+        || thetaEntry.getDouble(0) != previousThetaEntry;
+  }
+
+  public boolean rotationChangedOnly() {
+    return thetaEntry.getDouble(0) != previousThetaEntry
+        && (yEntry.getDouble(0) == previousYEntry || thetaEntry.getDouble(0) == previousThetaEntry);
+
   }
 }
