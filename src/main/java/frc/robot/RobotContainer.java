@@ -28,7 +28,6 @@ import edu.wpi.first.wpilibj.util.Color;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
-import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
@@ -455,9 +454,13 @@ public class RobotContainer {
                 3.0, 4.0,
                 Units.degreesToRadians(540), Units.degreesToRadians(720));
 
+        Command onTheFlyPathCommand = Commands.defer(() -> {
+                return AutoBuilder.pathfindToPose(guiTargetPose.getPose(), constraints);
+        }, Set.of(drive));
+
         guiTargetChange.and(guiControlMode::getValue)
                 .onTrue(Commands.either(new DriveToPoint(drive, guiTargetPose::getPose),
-                        new RunCommand(() -> { AutoBuilder.pathfindToPose(guiTargetPose.getPose(), constraints).schedule(); }, drive),
+                        onTheFlyPathCommand,
                         guiTargetPose::rotationChangedOnly));
 
         // elevator.setDefaultCommand(new InstantCommand(() -> {
