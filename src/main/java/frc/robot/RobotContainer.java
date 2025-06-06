@@ -33,6 +33,7 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.lib.AllianceFlipUtil;
 import frc.lib.DriveToPoint;
+import frc.lib.GUICommands;
 import frc.lib.ReceiveableBoolean;
 import frc.lib.ReceiveablePose2d;
 import frc.lib.RollerIO.RollerIO;
@@ -135,6 +136,8 @@ public class RobotContainer {
 
     private final ReceiveableBoolean guiControlMode;
 
+    private final Trigger guiActivateCommand;
+
     /** RobotContainer initialization */
     public RobotContainer() {
         // SignalLogger.start();
@@ -154,6 +157,8 @@ public class RobotContainer {
 
         guiTargetPose = new ReceiveablePose2d("DrivingGUI", "TargetPose");
         guiTargetChange = new Trigger(guiTargetPose::isChanged);
+
+        guiActivateCommand = new Trigger(GUICommands.getInstance()::activateCommand);
 
         guiControlMode = new ReceiveableBoolean("DrivingGUI", "GUI_control_mode");
 
@@ -462,6 +467,11 @@ public class RobotContainer {
                 .onTrue(Commands.either(new DriveToPoint(drive, guiTargetPose::getPose),
                         onTheFlyPathCommand,
                         guiTargetPose::rotationChangedOnly));
+
+        guiActivateCommand.onChange(Commands.defer(() -> {
+                System.out.println("Please say this runs");
+                return GUICommands.getInstance().getCurrentCommand();
+        }, Set.of(drive, led, elevator, coralIntake, coralOuttakePivot, coralOuttakeRoller)));
 
         // elevator.setDefaultCommand(new InstantCommand(() -> {
         // if (elevator.getCurrentGoal() != Elevator.Goal.STOW &&

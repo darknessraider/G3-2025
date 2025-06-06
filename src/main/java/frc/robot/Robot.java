@@ -7,6 +7,7 @@ package frc.robot;
 import edu.wpi.first.wpilibj.Threads;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.lib.GUICommands;
 import frc.lib.ReceiveablePose2d;
 import frc.lib.VirtualSubsystem;
 import frc.lib.simulation.BatterySimManager;
@@ -73,6 +74,7 @@ public class Robot extends LoggedRobot {
     CommandScheduler.getInstance().run();
     ReceiveablePose2d.updateValues();
     VirtualSubsystem.periodicAll();
+    System.out.println(GUICommands.getInstance().getCurrentCommandName());
   }
 
   @Override

@@ -10,12 +10,12 @@ import edu.wpi.first.units.Units;
 import java.util.ArrayList;
 
 public class ReceiveablePose2d {
-  NetworkTableEntry xEntry;
-  NetworkTableEntry yEntry;
-  NetworkTableEntry thetaEntry;
-  double previousXEntry;
-  double previousYEntry;
-  double previousThetaEntry;
+  private final NetworkTableEntry xEntry;
+  private final NetworkTableEntry yEntry;
+  private final NetworkTableEntry thetaEntry;
+  private double previousXEntry;
+  private double previousYEntry;
+  private double previousThetaEntry;
 
   private static ArrayList<ReceiveablePose2d> receiveablePoses = new ArrayList<ReceiveablePose2d>();
 
@@ -35,6 +35,7 @@ public class ReceiveablePose2d {
     xEntry = table.getEntry(entryName + "_x");
     yEntry = table.getEntry(entryName + "_y");
     thetaEntry = table.getEntry(entryName + "_theta");
+
     registerPose(this);
   }
 
